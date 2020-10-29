@@ -115,6 +115,37 @@ class FileManager
                 $_.Value = ""
             }
         }
+        
+        #Handle null transaction categories.
+        if($Transaction.category -eq "")
+        {
+            $transactionCategory = [XElement]::new('category', "")
+        }
+        else{
+
+            $Transaction.category.psobject.Properties | ForEach-Object {
+           
+                if($_.Value -eq $null)
+                {
+                    $_.Value = ""
+                }
+            }
+
+            $transactionCategory = [XElement]::new('category',
+            @(
+                [XAttribute]::new('id', $Transaction.category.id),
+                [XAttribute]::new('title', $Transaction.category.title),
+                [XAttribute]::new('colour', $Transaction.category.colour),
+                [XAttribute]::new('is_transfer', $Transaction.category.is_transfer),
+                [XAttribute]::new('is_bill', $Transaction.category.is_bill),
+                [XAttribute]::new('refund_behaviour', $Transaction.category.refund_behaviour),
+                [XAttribute]::new('parent_id', $Transaction.category.parent_id),
+                [XAttribute]::new('roll_up', $Transaction.category.roll_up),
+                [XAttribute]::new('created_at', $Transaction.category.created_at),
+                [XAttribute]::new('updated_at', $Transaction.category.updated_at)
+                #Child categories not included. 
+            ))
+        }
 
         $newElement = [XElement]::new(
             'Transaction',
@@ -124,7 +155,6 @@ class FileManager
                 [XAttribute]::new('original_payee', $Transaction.original_payee),
                 [XAttribute]::new('date', $Transaction.date),
                 [XAttribute]::new('upload_source', $Transaction.upload_source),
-                [XAttribute]::new('category', $Transaction.category),
                 [XAttribute]::new('closing_balance', $Transaction.closing_balance),
                 [XAttribute]::new('cheque_number', 
                 [Regex]::Match($Transaction.cheque_number, '\d+')),
@@ -139,6 +169,9 @@ class FileManager
                 [XAttribute]::new('labels', $Transaction.labels.ToString()),
                 [XAttribute]::new('created_at', $Transaction.created_at),
                 [XAttribute]::new('updated_at', $Transaction.updated_at),
+
+                #Insert previously created category.
+                $transactionCategory,
 
                 [XElement]::new('transaction_account', 
                 @(
@@ -171,7 +204,7 @@ class FileManager
 
             $this.DataFile.Element("Data").Element("Transactions").Add($newElement)
 
-        $this.Save()
+    
     }
 }
 
