@@ -1,4 +1,5 @@
 using namespace System.Xml.Linq
+using namespace System.Collections.Generic
 [CmdletBinding()]
 param
 (
@@ -230,21 +231,12 @@ class RestClient
 
     }
 
-    [psobject]Run()
+    [psobject]Run([string]$uri)
     {
         $responseHeaders = $null
-
-        if($this.NextPage -ne $null)
-        {
-            $this.CurrentPage = $this.NextPage
-        }
-        
-        #For Testing Only
-        #$pageNumber = [Regex]::Match($this.CurrentPage, '(?<=page=)(\d+)(?=&)').Value
-        #Write-Host "Processing Page $pageNumber"
         
         #Get Links
-        $results = Invoke-RestMethod -Headers $this.Headers -Uri $this.CurrentPage -ResponseHeadersVariable responseHeaders
+        $results = Invoke-RestMethod -Headers $this.Headers -Uri $uri -ResponseHeadersVariable responseHeaders
         $links = $responseHeaders["Link"][0]
     
         $this.FirstPage = [Regex]::Match($links, '(?<=<)[^<]+(?=>;\srel=\"first\")').Value
@@ -262,16 +254,34 @@ class TransactionDownloader
     {
         Write-Host "Downloading Transactions..."
         $restClient = [RestClient]::new($script:baseUri)
+        #[List[psobject]]$unProcessedTransactions = [List[psobject]]::new()
 
         do {
+            
+           # Invoke-Command -AsJob -ScriptBlock {
+            
+                #$restClient = $using:restClient
+                #$unProccessedTransactions = $using:unProcessedTransactions
+                if($restClient.NextPage -ne $null)
+                {
+                    $restClient.CurrentPage = $restClient.NextPage
+                }
+            
 
-            $transactions = $restClient.Run()
+                #For Testing
+                $page = [Regex]::Match($restClient.CurrentPage, '(?<=page=)(\d+)(?=&)').Value
+                Write-Host "Processing Page $page"
 
-            $transactions | ForEach-Object {
-              $transaction = $_
-              
-              $script:fileManager.AddTransaction($transaction)
-            } 
+                $transactions = $restClient.Run($restClient.CurrentPage)
+                $transactions | ForEach-Object {
+                    $transaction = $_
+
+                    #$unProcessedTransactions.Add($transaction)
+                    
+                    $script:fileManager.AddTransaction($transaction)
+                  #} 
+            }
+            
 
         } until ($restClient.CurrentPage -eq $restClient.LastPage)
 
