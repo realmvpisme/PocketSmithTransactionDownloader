@@ -197,7 +197,7 @@ class RestClient
 
     }
 
-    [psobject]Run([string]$uri)
+    [psobject]Run()
     {
         $responseHeaders = $null
 
@@ -206,8 +206,12 @@ class RestClient
             $this.CurrentPage = $this.NextPage
         }
         
+        #For Testing Only
+        #$pageNumber = [Regex]::Match($this.CurrentPage, '(?<=page=)(\d+)(?=&)').Value
+        #Write-Host "Processing Page $pageNumber"
+        
         #Get Links
-        $results = Invoke-RestMethod -Headers $this.Headers -Uri $uri -ResponseHeadersVariable responseHeaders
+        $results = Invoke-RestMethod -Headers $this.Headers -Uri $this.CurrentPage -ResponseHeadersVariable responseHeaders
         $links = $responseHeaders["Link"][0]
     
         $this.FirstPage = [Regex]::Match($links, '(?<=<)[^<]+(?=>;\srel=\"first\")').Value
@@ -228,7 +232,7 @@ class TransactionDownloader
 
         do {
 
-            $transactions = $restClient.Run($restClient.CurrentPage)
+            $transactions = $restClient.Run()
 
             $transactions | ForEach-Object {
               $transaction = $_
@@ -243,6 +247,8 @@ class TransactionDownloader
 }
 
 # Script Body
+Clear-Host
+
 $script:fileManager = [FileManager]::new()
 if($LoadTransactionFile)
 {
@@ -257,5 +263,5 @@ $transactionDownloader = [TransactionDownloader]::new()
 $transactionDownloader.Run()
 
 Write-Host "All transactions have downloaded successfully. Exiting..."
-        Pause -3
+        Pause
 
