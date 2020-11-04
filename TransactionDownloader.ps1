@@ -116,6 +116,16 @@ class FileManager
                 $_.Value = ""
             }
         }
+
+        #Handle null labels
+
+        if($Transaction.labels[0].Length -gt 0)
+        {
+            $transactionLabels = [string]::Join(',', $Transaction.labels)
+        }
+        else {
+            $transactionLabels = ""
+        }
         
         #Handle null transaction categories.
         if($Transaction.category -eq "")
@@ -167,7 +177,7 @@ class FileManager
                 [XAttribute]::new('needs_review', $Transaction.needs_review),
                 [XAttribute]::new('status', $Transaction.status),
                 [XAttribute]::new('note', $Transaction.note),
-                [XAttribute]::new('labels', $Transaction.labels.ToString()),
+                [XAttribute]::new('labels', $transactionLabels),
                 [XAttribute]::new('created_at', $Transaction.created_at),
                 [XAttribute]::new('updated_at', $Transaction.updated_at),
 
