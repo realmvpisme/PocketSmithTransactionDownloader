@@ -1,19 +1,54 @@
 using namespace System.Xml.Linq
 using namespace System.Collections.Generic
+<#
+	.SYNOPSIS
+		Download transaction data from PocketSmith.
+	
+	.DESCRIPTION
+		Downloads transaction and budget event data using the PocketSmith api at https://api.pocketsmith.com
+	
+	.PARAMETER UserId
+		Pocketsmith account user Id. This is an integer.
+	
+	.PARAMETER ApiKey
+		PocketSmith Api key.
+	
+	.PARAMETER StartDate
+		Start date of data to return.
+	
+	.PARAMETER EndDate
+		End date of data to return.
+	
+	.PARAMETER DataType
+		The data type you wish to return. Default is "All".
+	
+	.PARAMETER LoadTransactionFile
+		A description of the LoadTransactionFile parameter.
+	
+	.EXAMPLE
+				PS C:\> .\TransactionDownloader.ps1 -UserId $value1 -ApiKey 'Value2'
+	
+	.NOTES
+		Additional information about the file.
+#>
 [CmdletBinding()]
 param
 (
-	#[Switch]$LoadTransactionFile,
 	[Parameter(Mandatory = $true)]
-	[string]$UserId,
+	[int]$UserId,
 	[Parameter(Mandatory = $true)]
-	[string]$ApiKey
+	[string]$ApiKey,
+	[DateTime]$StartDate,
+	[DateTime]$EndDate,
+	[ValidateSet('All', 'Transactions', 'BudgetEvents')]
+	$DataType = 'All',
+	[switch]$LoadTransactionFile
 )
 
 #Script Constants
 $script:userId = $UserId
 $script:apiKey = $ApiKey
-$script:baseUri = "https://api.pocketsmith.com/v2/users/"
+$baseUri = "https://api.pocketsmith.com/v2/users/"
 
 Add-Type -AssemblyName "System.Windows.Forms"
 
@@ -79,7 +114,8 @@ class FileManager
             [XDeclaration]::new('1.0', 'utf-8', 'yes'),
             [XElement]::new(
                 [XName]'Data',
-            [XElement]::new([XName]'Transactions')
+            [XElement]::new([XName]'Transactions'),
+            [XElement]::new([XName]'BudgetEvents')
         ))
 
         $this.DataFile.Save($this.DataFilePath)
@@ -217,6 +253,34 @@ class FileManager
 
     
     }
+
+    AddBudgetEvent([psobject]$budgetEvent)
+    {
+        #Replace null values with ""
+        $BudgetEvent.psobject.Properties | ForEach-Object{
+            
+            if(($_.Value -eq $null))
+            {
+                $_.Value = ""
+            }
+        }
+
+        $newElement = [XElement]::new('BudgetEvent',
+        @(
+            [XAttribute]::new('id', $budgetEvent.id),
+            [XAttribute]::new('amount', $budgetEvent.amount),
+            [XAttribute]::new('amount_in_base_currency', $budgetEvent.amount_in_base_currency),
+            [XAttribute]::new('currency_code', $budgetEvent.currency_code),
+            [XAttribute]::new('date', $budgetEvent.date),
+            [XAttribute]::new('colour', $budgetEvent.colour),
+            [XAttribute]::new('note', $budgetEvent.note),
+            [XAttribute]::new('repeat_type', $budgetEvent.repeat_type),
+            [XAttribute]::new('repeat_interval', $budgetEvent.repeat_interval),
+            [XAttribute]::new('series_id', $budgetEvent.series_id),
+            [XAttribute]::new('series_start_id', $budgetEvent.series_start_id),
+            [XAttribute]::new('infinite_series', $budgetEvent.infinite_series)
+        ))
+    }
 }
 
 class RestClient
@@ -237,7 +301,7 @@ class RestClient
             "accept"          = "application/json"
         }
 
-        $this.CurrentPage = $this.BaseUri + $script:userId + '/transactions?' + 'per_page=100'
+        $this.CurrentPage = $this.BaseUri
 
     }
 
@@ -260,18 +324,20 @@ class RestClient
 
 class TransactionDownloader
 {
+    [string]$BaseUri
+
+    TransactionDownloader([string]$BaseUri)
+    {
+        $this.BaseUri = $BaseUri + $script:userId + '/transactions?' + 'per_page=100'
+    }
+
     Run()
     {
         Write-Host "Downloading Transactions..."
-        $restClient = [RestClient]::new($script:baseUri)
-        #[List[psobject]]$unProcessedTransactions = [List[psobject]]::new()
+        $restClient = [RestClient]::new($this.BaseUri)
 
         do {
             
-           # Invoke-Command -AsJob -ScriptBlock {
-            
-                #$restClient = $using:restClient
-                #$unProccessedTransactions = $using:unProcessedTransactions
                 if($restClient.NextPage -ne $null)
                 {
                     $restClient.CurrentPage = $restClient.NextPage
@@ -280,22 +346,60 @@ class TransactionDownloader
 
                 #For Testing
                 $page = [Regex]::Match($restClient.CurrentPage, '(?<=page=)(\d+)(?=&)').Value
-                Write-Host "Processing Page $page"
+                Clear-Host
+                Write-Host "PocketSmith Transaction Downloader"
+                Write-Host "Processing Transaction Page $page"
 
                 $transactions = $restClient.Run($restClient.CurrentPage)
                 $transactions | ForEach-Object {
-                    $transaction = $_
-
-                    #$unProcessedTransactions.Add($transaction)
+                    $transaction = $              
                     
                     $script:fileManager.AddTransaction($transaction)
-                  #} 
+                
             }
             
 
         } until ($restClient.CurrentPage -eq $restClient.LastPage)
 
         $script:fileManager.Save()
+    }
+}
+
+class BudgetDownloader
+{
+    [string]$BaseUri
+
+    BudgetDownloader([string]$BaseUri)
+    {
+        $this.BaseUri = $BaseUri + '/events?' + 'per_page=100'
+    }
+
+    Run()
+    { 
+        Write-Host "Downloading Budget Events..."
+        $restClient = [RestClient]::new($this.BaseUri)
+
+        do {
+            if($restClient.NextPage -ne $null)
+            {
+                $restClient.CurrentPage = $restClient.NextPage
+            }
+        
+
+            #For Testing
+            $page = [Regex]::Match($restClient.CurrentPage, '(?<=page=)(\d+)(?=&)').Value
+            Clear-Host
+            Write-Host "PocketSmith Transaction Downloader"
+            Write-Host "Processing Budget Event Page $page"
+
+            $events = $restClient.Run($restClient.CurrentPage)
+            $events | ForEach-Object {
+                $budgetEvent = $              
+                
+                $script:fileManager.AddBudgetEvent($budgetEvent)
+            
+        }
+        } until ($restClient.CurrentPage -eq $restClient.LastPage)
     }
 }
 
@@ -312,8 +416,23 @@ else
    $fileManager.Create() 
 }
 
-$transactionDownloader = [TransactionDownloader]::new()
-$transactionDownloader.Run()
+switch ($DataType) {
+    'Transactions' { 
+        $transactionDownloader = [TransactionDownloader]::new($baseUri)
+        $transactionDownloader.Run()
+    }
+    'BudgetEvents' {
+        
+    }
+    'All' {
+        $budgetDownloader = [BudgetDownloader]::new($baseUri)
+        $budgetDownloader.Run()
+
+        $transactionDownloader = [TransactionDownloader]::new($baseUri)
+        $transactionDownloader.Run()
+    }
+}
+
 
 Write-Host "All transactions have downloaded successfully. Exiting..."
         Pause
