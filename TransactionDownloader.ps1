@@ -38,8 +38,8 @@ param
 	[int]$UserId,
 	[Parameter(Mandatory = $true)]
 	[string]$ApiKey,
-	[DateTime]$StartDate,
-	[DateTime]$EndDate,
+	[string]$StartDate = '01/01/2015',
+	[string]$EndDate = '12/31/2021',
 	[ValidateSet('All', 'Transactions', 'BudgetEvents')]
 	$DataType = 'All',
 	[switch]$LoadTransactionFile
@@ -48,6 +48,8 @@ param
 #Script Constants
 $script:userId = $UserId
 $script:apiKey = $ApiKey
+$script:startDate = [DateTime]::Parse($StartDate).ToString("yyyy-MM-dd")
+$script:endDate = [DateTime]::Parse($EndDate).ToString("yyyy-MM-dd")
 $baseUri = "https://api.pocketsmith.com/v2/users/"
 
 Add-Type -AssemblyName "System.Windows.Forms"
@@ -136,7 +138,7 @@ class FileManager
                 $_.Value = ""
             }
         }
-
+        #Replace null values in transaction_account with ""
         $Transaction.transaction_account.psobject.Properties | ForEach-Object {
             
             if($_.Value -eq $null)
@@ -144,7 +146,7 @@ class FileManager
                 $_.Value = ""
             }
         }
-
+        #Replace null values in institution with ""
         $Transaction.transaction_account.institution.psobject.Properties | ForEach-Object {
            
             if($_.Value -eq $null)
@@ -257,9 +259,27 @@ class FileManager
     AddBudgetEvent([psobject]$budgetEvent)
     {
         #Replace null values with ""
-        $BudgetEvent.psobject.Properties | ForEach-Object{
+        $budgetEvent.psobject.Properties | ForEach-Object{
             
             if(($_.Value -eq $null))
+            {
+                $_.Value = ""
+            }
+        }
+
+        #Replace null values in category with ""
+        $budgetEvent.category.psobject.Properties | ForEach-Object{
+
+            if ($_.Value -eq $null)
+            {
+                $_.Value = ""
+            }
+        }
+
+        #Replace null values in scenario with ""
+        $budgetEvent.scenario.psobject.Properties | ForEach-Object{
+            
+            if($_.Value -eq $null)
             {
                 $_.Value = ""
             }
@@ -278,8 +298,48 @@ class FileManager
             [XAttribute]::new('repeat_interval', $budgetEvent.repeat_interval),
             [XAttribute]::new('series_id', $budgetEvent.series_id),
             [XAttribute]::new('series_start_id', $budgetEvent.series_start_id),
-            [XAttribute]::new('infinite_series', $budgetEvent.infinite_series)
+            [XAttribute]::new('infinite_series', $budgetEvent.infinite_series),
+
+                [XElement]::new('category',
+                @(
+                    [XAttribute]::new('id', $budgetEvent.category.id),
+                    [XAttribute]::new('title', $budgetEvent.category.title),
+                    [XAttribute]::new('colour', $budgetEvent.category.colour),
+                    [XAttribute]::new('is_transfer', $budgetEvent.category.is_transfer),
+                    [XAttribute]::new('is_bill', $budgetEvent.category.is_bill),
+                    [XAttribute]::new('refund_behaviour', $budgetEvent.category.refund_behaviour),
+                    [XAttribute]::new('parent_id', $budgetEvent.category.parent_id),
+                    [XAttribute]::new('roll_up', $budgetEvent.category.roll_up),
+                    [XAttribute]::new('created_at', $budgetEvent.category.created_at),
+                    [XAttribute]::new('updated_at', $budgetEvent.category.updated_at)
+                )),
+                [XElement]::new('scenario',
+                @(
+                    [XAttribute]::new('id', $budgetEvent.scenario.id),
+                    [XAttribute]::new('title', $budgetEvent.scenario.title),
+                    [XAttribute]::new('description', $budgetEvent.scenario.description),
+                    [XAttribute]::new('interest_rate', $budgetEvent.scenario.interest_rate),
+                    [XAttribute]::new('interest_rate_repeat_id', $budgetEvent.scenario.interest_rate_repeat_id),
+                    [XAttribute]::new('type', $budgetEvent.scenario.type),
+                    [XAttribute]::new('minimum_value', $budgetEvent.scenario.minimum_value),
+                    [XAttribute]::new('maximum_value', $budgetEvent.scenario.maximum_value),
+                    [XAttribute]::new('achieve_date', $budgetEvent.scenario.achieve_date),
+                    [XAttribute]::new('starting_balance', $budgetEvent.scenario.starting_balance),
+                    [XAttribute]::new('starting_balance_date', $budgetEvent.scenario.starting_balance_date),
+                    [XAttribute]::new('closing_balance', $budgetEvent.scenario.closing_balance),
+                    [XAttribute]::new('closing_balance_date', $budgetEvent.scenario.closing_balance_date),
+                    [XAttribute]::new('current_balance', $budgetEvent.scenario.current_balance),
+                    [XAttribute]::new('current_balance_in_base_currency', $budgetEvent.scenario.current_balance_in_base_currency),
+                    [XAttribute]::new('current_balance_exchange_rate', $budgetEvent.scenario.current_balance_exchange_rate),
+                    [XAttribute]::new('current_balance_date', $budgetEvent.scenario.current_balance_date),
+                    [XAttribute]::new('safe_balance', $budgetEvent.scenario.safe_balance),
+                    [XAttribute]::new('safe_balance_in_base_currency', $budgetEvent.scenario.safe_balance_in_base_currency),
+                    [XAttribute]::new('created_at', $budgetEvent.scenario.created_at),
+                    [XAttribute]::new('updated_at', $budgetEvent.scenario.updated_at)
+                ))
         ))
+
+        $this.DataFile.Element("Data").Element("BudgetEvents").Add($newElement)
     }
 }
 
@@ -325,6 +385,7 @@ class RestClient
 class TransactionDownloader
 {
     [string]$BaseUri
+    [int]$TotalTransactions
 
     TransactionDownloader([string]$BaseUri)
     {
@@ -352,7 +413,7 @@ class TransactionDownloader
 
                 $transactions = $restClient.Run($restClient.CurrentPage)
                 $transactions | ForEach-Object {
-                    $transaction = $              
+                    $transaction = $_            
                     
                     $script:fileManager.AddTransaction($transaction)
                 
@@ -368,10 +429,11 @@ class TransactionDownloader
 class BudgetDownloader
 {
     [string]$BaseUri
+    [int]$TotalBudgets
 
     BudgetDownloader([string]$BaseUri)
     {
-        $this.BaseUri = $BaseUri + '/events?' + 'per_page=100'
+        $this.BaseUri = $BaseUri + $script:userId + '/events?' + 'per_page=100' + "&start_date=$script:startDate" + "&end_date=$script:endDate"
     }
 
     Run()
@@ -393,13 +455,16 @@ class BudgetDownloader
             Write-Host "Processing Budget Event Page $page"
 
             $events = $restClient.Run($restClient.CurrentPage)
+
             $events | ForEach-Object {
-                $budgetEvent = $              
+                $budgetEvent = $_         
                 
                 $script:fileManager.AddBudgetEvent($budgetEvent)
             
-        }
+            }
         } until ($restClient.CurrentPage -eq $restClient.LastPage)
+
+        $script:fileManager.Save()
     }
 }
 
@@ -422,18 +487,19 @@ switch ($DataType) {
         $transactionDownloader.Run()
     }
     'BudgetEvents' {
-        
-    }
-    'All' {
         $budgetDownloader = [BudgetDownloader]::new($baseUri)
         $budgetDownloader.Run()
-
+    }
+    'All' {
         $transactionDownloader = [TransactionDownloader]::new($baseUri)
         $transactionDownloader.Run()
+
+        $budgetDownloader = [BudgetDownloader]::new($baseUri)
+        $budgetDownloader.Run()
     }
 }
 
 
-Write-Host "All transactions have downloaded successfully. Exiting..."
+Write-Host "All downloads have completed successfully. Exiting..."
         Pause
 
